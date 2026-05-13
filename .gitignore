@@ -1,0 +1,9 @@
+auto_eval_logs/
+logs/
+__pycache__/
+*.pyc
+*.log
+watcher.log
+server.log
+run_eval_launch.log
+checkpoints/
