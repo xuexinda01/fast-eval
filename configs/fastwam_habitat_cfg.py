@@ -9,6 +9,9 @@ import os
 import sys
 sys.path.insert(0, '/apdcephfs_tj5/share_302528826/xxd/fastwam_vln_eval')
 
+# Register GoTowardPoint action + Hydra ConfigStore entry (must come before habitat env init)
+import habitat_extensions.actions  # noqa: F401
+
 # Import to register the agent
 import fastwam_client_agent  # noqa: F401
 
