@@ -152,18 +152,19 @@ def fastwam_traj_to_waypoint(
     stop_ratio_threshold: float = 0.90,
 ) -> Optional[np.ndarray]:
     """
-    Convert FastWAM trajectory to a single continuous waypoint using polar coordinates.
+    Convert FastWAM trajectory to a single continuous waypoint (r, theta) in polar coords.
 
-    Instead of mapping to discrete LEFT/RIGHT/FORWARD actions, this function uses the
-    model's theta output (3rd dimension) directly as a polar angle, combined with the
-    Euclidean distance of the first waypoint as radius, to compute a target (x, y)
-    position in the agent-local frame.
+    Uses the first predicted waypoint's (x, y) to compute polar coordinates:
+        r     = ||trajectory[0, :2]||       — Euclidean distance to first waypoint
+        theta = arctan2(-x, y)              — angle from agent's forward axis
+                                              (positive = rightward, matching Habitat convention)
 
-    Polar coordinate convention:
-        r     = ||trajectory[0, :2]||  — distance of first predicted point from origin
-        theta = trajectory[0, 2]       — polar angle (radians), 3rd model output dimension
-        x_target = r * cos(theta)
-        y_target = r * sin(theta)
+    This matches the OmniNav waypoint execution approach:
+        theta = np.arctan2(-way_point_loc[0], way_point_loc[1])
+        action = GO_TOWARD_POINT(theta=theta, r=r)
+
+    Note: model's dim-2 output is "heading change" (not polar angle), so we derive
+    theta geometrically from (x, y) instead of using trajectory[0, 2] directly.
 
     Stop condition:
         Returns None (STOP) if more than `stop_ratio_threshold` (default 90%) of the
@@ -173,13 +174,13 @@ def fastwam_traj_to_waypoint(
         trajectory: [T, 3] or [T, 4] array in agent-local frame.
                     dim 0 = x (lateral, positive right)
                     dim 1 = y (forward, positive forward)
-                    dim 2 = theta (polar angle, radians)
+                    dim 2 = heading change (radians, NOT used for polar angle)
                     dim 3 = moving_flag (optional, 0=stop 1=move)
         moving_flag_threshold: Value below which a moving_flag counts as "stop". Default 0.5.
         stop_ratio_threshold: Fraction of stop votes required to trigger STOP. Default 0.90.
 
     Returns:
-        np.ndarray([x_target, y_target]) — continuous target in agent-local frame, or
+        np.ndarray([r, theta]) — polar coordinate waypoint for GO_TOWARD_POINT, or
         None — if the stop condition is triggered.
     """
     if trajectory is None or len(trajectory) == 0:
@@ -198,15 +199,14 @@ def fastwam_traj_to_waypoint(
             print(f"[Waypoint] stop_steps={stop_steps}/{len(moving_flags)} "
                   f"({stop_ratio:.1%}) ≤ {stop_ratio_threshold:.0%} → move")
 
-    # Polar coordinate conversion using first waypoint
+    # Polar coordinate conversion: derive (r, theta) from first waypoint's (x, y)
+    # Coordinate frame: x = lateral (right+), y = forward (forward+)
+    # theta = arctan2(-x, y): angle from forward axis, positive = rightward
+    # This matches OmniNav: theta = np.arctan2(-way_point_loc[0], way_point_loc[1])
     first = trajectory[0]
     x0, y0 = float(first[0]), float(first[1])
     r = np.sqrt(x0 ** 2 + y0 ** 2)
-    theta = float(first[2])  # 3rd model output dimension used as polar angle
+    theta = np.arctan2(-x0, y0)  # angle from forward axis (Habitat convention)
 
-    x_target = r * np.cos(theta)
-    y_target = r * np.sin(theta)
-
-    print(f"[Waypoint] first=({x0:.3f}, {y0:.3f}) r={r:.3f} theta={theta:.3f} "
-          f"→ target=({x_target:.3f}, {y_target:.3f})")
-    return np.array([x_target, y_target], dtype=np.float32)
+    print(f"[Waypoint] first=({x0:.3f}, {y0:.3f}) → r={r:.3f} theta={np.degrees(theta):.1f}°")
+    return np.array([r, theta], dtype=np.float32)

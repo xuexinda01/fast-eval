@@ -95,26 +95,20 @@ class FastWAMClientAgent(Agent):
             _send_msg(self.sock, {"command": "reset"})
             _recv_msg(self.sock)
 
-    def _waypoint_to_discrete(self, waypoint, turn_angle_deg=15.0):
+    def _waypoint_to_go_toward_point(self, waypoint):
         """
-        Convert continuous waypoint [x_target, y_target] to a single discrete Habitat action.
+        Convert polar waypoint [r, theta] to a Habitat GO_TOWARD_POINT action dict.
 
-        FastWAM local frame: x = lateral (positive = right), y = forward (positive = forward).
-        Returns one of: 0=STOP, 1=FORWARD, 2=LEFT, 3=RIGHT.
+        Args:
+            waypoint: [r, theta] — r = distance (meters), theta = angle from forward axis
+                      (positive = rightward), as returned by fastwam_traj_to_waypoint().
+
+        Returns:
+            dict: {"action": "GO_TOWARD_POINT", "action_args": {"r": r, "theta": theta}}
         """
-        import math
-        x, y = float(waypoint[0]), float(waypoint[1])
-        if abs(x) < 1e-6 and abs(y) < 1e-6:
-            return 0  # STOP — zero-length waypoint
-        # Angle from forward axis (positive = rightward, negative = leftward)
-        angle_deg = math.degrees(math.atan2(x, y))
-        half = turn_angle_deg / 2.0
-        if abs(angle_deg) <= half:
-            return 1  # FORWARD
-        elif angle_deg > 0:
-            return 3  # RIGHT
-        else:
-            return 2  # LEFT
+        r = float(waypoint[0])
+        theta = float(waypoint[1])
+        return {"action": "GO_TOWARD_POINT", "action_args": {"r": r, "theta": theta}}
 
     def step(self, obs):
         """
@@ -186,19 +180,22 @@ class FastWAMClientAgent(Agent):
             print(f"[FastWAM] step={self.episode_step} actions={actions} in {elapsed:.2f}s{stop_prob_str}")
 
         if waypoint is not None:
-            # Waypoint mode: server sends [x_target, y_target] in agent-local frame.
-            # actions[0]==0 means STOP signal; otherwise convert waypoint to discrete action.
+            # Waypoint mode: server sends [r, theta] polar coordinate.
+            # actions[0]==0 means STOP; otherwise use GO_TOWARD_POINT.
             if actions[0] == 0:
-                action = 0  # STOP
+                action = {"action": "STOP"}
+                print(f"[FastWAM] waypoint STOP signal → STOP")
             else:
-                action = self._waypoint_to_discrete(waypoint)
-            print(f"[FastWAM] waypoint=({waypoint[0]:.3f},{waypoint[1]:.3f}) → discrete={action}")
+                import math as _math
+                action = self._waypoint_to_go_toward_point(waypoint)
+                print(f"[FastWAM] waypoint r={waypoint[0]:.3f} theta={waypoint[1]:.3f}rad"
+                      f"({_math.degrees(waypoint[1]):.1f}°) → GO_TOWARD_POINT")
         else:
             # Discrete mode: server returns a Habitat int action directly.
             action = actions[0] if actions else 0
 
         self.episode_step += 1
-        result = {'action': [action], 'ideal_flag': True}
+        result = {'action': action if waypoint is not None else [action], 'ideal_flag': True}
         if trajectory is not None:
             result['trajectory'] = trajectory
         if stop_prob is not None:

@@ -183,15 +183,18 @@ def handle_client(conn, addr, agent, infer_lock):
                 raw_action = result["action"]
                 response_waypoint = None
                 if isinstance(raw_action, _np.ndarray):
-                    # Waypoint mode: [x, y] float array → put in "waypoint", FORWARD as discrete
+                    # Waypoint mode: [r, theta] float array — polar coordinates for GO_TOWARD_POINT
                     response_waypoint = raw_action.tolist()
-                    actions = [1]  # FORWARD placeholder for Habitat evaluator
+                    actions = [1]  # non-STOP marker; client uses GO_TOWARD_POINT
                 elif (isinstance(raw_action, list)
                       and len(raw_action) == 2
                       and isinstance(raw_action[0], float)):
-                    # Waypoint mode already converted to list
+                    # Already a list [r, theta]
                     response_waypoint = raw_action
                     actions = [1]
+                elif isinstance(raw_action, list) and raw_action == [0]:
+                    # Waypoint STOP signal
+                    actions = [0]
                 else:
                     # Discrete mode or STOP: raw_action is [int] or int
                     actions = raw_action if isinstance(raw_action, list) else [raw_action]
